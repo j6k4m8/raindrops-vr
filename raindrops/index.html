@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>raindrops</title>
+    <script src="https://rawgit.com/richtr/NoSleep.js/master/NoSleep.min.js" charset="utf-8"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r83/three.min.js" charset="utf-8"></script>
+    <script src="https://threejs.org/examples/js/controls/TrackballControls.js" charset="utf-8"></script>
+    <script src="https://threejs.org/examples/js/controls/OrbitControls.js" charset="utf-8"></script>
+    <script src="https://threejs.org/examples/js/controls/DeviceOrientationControls.js" charset="utf-8"></script>
+    <script src="https://threejs.org/examples/js/Mirror.js" charset="utf-8"></script>
+    <script src="https://threejs.org/examples/js/WaterShader.js" charset="utf-8"></script>
+    <script src="https://threejs.org/examples/js/loaders/MTLLoader.js" charset="utf-8"></script>
+    <script src="https://threejs.org/examples/js/loaders/OBJLoader.js" charset="utf-8"></script>
+    <script src="https://threejs.org/examples/obj/Bird.js" charset="utf-8"></script>
+    <script src="https://stemkoski.github.io/Three.js/js/THREEx.FullScreen.js" charset="utf-8"></script>
+    <script src="StereoEffect.js" charset="utf-8"></script>
+    <script src="./boid.js" charset="utf-8"></script>
+</head>
+<body>
+    <script>
+
+    for (var i = 1e6, _randoms=[]; i--;) {
+        _randoms.push(Math.random()*101|0);
+    }
+    function _random() {
+        return ++i >= _randoms.length ? _randoms[i=0] : _randoms[i];
+    }
+
+    var noSleep = new NoSleep();
+
+    function enableNoSleep(ev) {
+        if (!ev.keyCode || (ev.keyCode && ev.keyCode === 32)) {
+            THREEx.FullScreen.request();
+            noSleep.enable();
+            document.removeEventListener('touchstart', enableNoSleep, false);
+        }
+    }
+
+    document.addEventListener('touchstart', enableNoSleep, false);
+    document.addEventListener('keydown', enableNoSleep, false);
+
+    SETTINGS = {
+        scene: {
+            raindropSpawnHeight: 200
+        },
+        raindrops: {
+            radius: 4,
+            fallSpeed: 0.3
+        },
+        boat: {
+            motion: 0.0005,
+            mass: 100,
+            speed: 0
+        },
+        ocean: {
+            width: 2000,
+            height: 2000,
+            widthSegments: 250,
+            heightSegments: 250,
+            depth: 1500,
+            param: 4,
+            filterparam: 1
+        }
+    }
+
+    var clock = new THREE.Clock();
+
+    let drops = [];
+    let splats = [];
+
+
+
+    function addBirds() {
+        birds = [];
+        boids = [];
+
+        for ( var i = 0; i < 200; i ++ ) {
+
+            boid = boids[ i ] = new Boid();
+            boid.position.x = Math.random() * 400 - 200;
+            boid.position.y = Math.random() * 400;
+            boid.position.z = Math.random() * 400 - 200;
+            boid.velocity.x = Math.random() * 1 - 0.5;
+            boid.velocity.y = Math.random() * 1 - 0.5;
+            boid.velocity.z = Math.random() * 1 - 0.5;
+            boid.setAvoidWalls( true );
+            boid.setWorldSize( 1000, 500, 1000 );
+
+            bird = birds[ i ] = new THREE.Mesh( new Bird(), new THREE.MeshBasicMaterial( { color:Math.random() * 0xffffff, side: THREE.DoubleSide } ) );
+            bird.scale.set(0.4, 0.4, 0.4);
+            bird.phase = Math.floor( Math.random() * 62.83 );
+            scene.add( bird );
+        }
+    }
+
+
+
+    function setup(scope) {
+        scope.renderer = new THREE.WebGLRenderer({
+            antialias: true
+        });
+        scope.renderer.setClearColor(new THREE.Color(0xd0d2f0), 1)
+        renderer.sortObjects = false;
+        scope.renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(scope.renderer.domElement);
+
+        scope.scene = new THREE.Scene();
+        scope.camera = new THREE.PerspectiveCamera(
+            45,
+            window.innerWidth / window.innerHeight,
+            0.01,
+            1000
+        );
+        scope.camera.position.x = -2;
+        scope.camera.position.y = 5;
+        scope.camera.position.z = -2;
+        scope.camera.rotation.y = (Math.PI / 2);
+
+        effect = new THREE.StereoEffect( renderer );
+        effect.eyeSeparation = 1;
+        effect.separation = 1;
+        effect.setSize( window.innerWidth, window.innerHeight );
+
+        // scope.controls = new THREE.FirstPersonControls(camera);
+        // scope.controls.lookSpeed = .1;
+        scope.controls = new THREE.OrbitControls(camera, renderer.element);
+        controls.target.set(
+            camera.position.x + 0.15,
+            camera.position.y,
+            camera.position.z
+        );
+        // controls.noPan = true;
+        // controls.noZoom = true;
+
+        mainLight = new THREE.DirectionalLight( 0xcccccc, 10, 25 );
+        mainLight.position.set(600, 600, 600);
+        mainLight.rotation.set(10, 10, 10);
+        scope.scene.add( mainLight );
+
+        addWater();
+
+        // Surface:
+        // var planeGeo = new THREE.PlaneBufferGeometry( 600.1, 600.1 );
+        // groundMirror = new THREE.Mirror(renderer, camera, {
+        //     clipBias: 0.3,
+        //     textureWidth: window.innerWidth,
+        //     textureHeight: window.innerHeight,
+        //     color: 0x888888,
+        //     transparent: true,
+        //     opacity: 0.1
+        // } );
+        // var mirrorMesh = new THREE.Mesh( planeGeo, groundMirror.material );
+        // mirrorMesh.add( groundMirror );
+        // mirrorMesh.rotateX( - Math.PI / 2 );
+        // scope.scene.add( mirrorMesh );
+
+        // Boat
+
+        var objLoader = new THREE.OBJLoader();
+        objLoader.load('boat.obj', function(object) {
+            object.traverse(function (child) {
+                if (child instanceof THREE.Mesh && child.material) {
+                    child.material = new THREE.MeshPhysicalMaterial({
+                        color: 0x301304,
+                        specular: 0x050505,
+                        shininess: 50
+                    });
+                    // console.log(child)
+                    // // child.material.ambient.setHex(0xFF0000);
+                    // child.material.color = {r: 48, g: 19, b: 4}
+                }
+            });
+
+            object.position.y = 0.25;
+            object.position.y = 0.25;
+            scope.boat = object;
+            scene.add(scope.boat);
+        }, (xhr) => {
+            if ((xhr.loaded / xhr.total) === 1) {
+                setTimeout(ready, 200);
+            }
+        });
+
+        addBirds();
+
+
+        window.addEventListener('resize', function(){
+            scope.renderer.setSize( window.innerWidth, window.innerHeight )
+            scope.camera.aspect = window.innerWidth / window.innerHeight
+            effect.setSize(window.innerWidth, window.innerHeight);
+            scope.camera.updateProjectionMatrix()
+        }, false);
+
+
+        function setOrientationControls(e) {
+            if (!e.alpha && e.alpha !== 0) {
+                return;
+            }
+            controls = new THREE.DeviceOrientationControls(camera, true);
+            controls.connect();
+            controls.update();
+            window.removeEventListener('deviceorientation', setOrientationControls, true);
+        }
+        window.addEventListener('deviceorientation', setOrientationControls, true);
+    }
+
+    function addWater() {
+        waterNormals = new THREE.TextureLoader().load( 'https://threejs.org/examples/textures/waternormals.jpg' );
+        waterNormals.wrapS = waterNormals.wrapT = THREE.RepeatWrapping;
+
+        water = new THREE.Water( renderer, camera, scene, {
+            textureWidth: 512,
+            textureHeight: 512,
+            waterNormals: waterNormals,
+            alpha: 	1.0,
+            sunDirection: mainLight.position.clone().normalize(),
+            sunColor: 0xffffff,
+            waterColor: 0x001e0f,
+            distortionScale: 10.0
+        } );
+
+
+        mirrorMesh = new THREE.Mesh(
+            new THREE.PlaneBufferGeometry(
+                SETTINGS.ocean.width * 500,
+                SETTINGS.ocean.height * 500,
+                10, 10
+            ),
+            water.material
+        );
+
+        mirrorMesh.add( water );
+        mirrorMesh.rotation.x = - Math.PI * 0.5;
+        scene.add( mirrorMesh );
+    }
+
+    function addRaindrop() {
+        let geom = new THREE.SphereGeometry(SETTINGS.raindrops.radius, 20, 20);
+        let col = new THREE.Color(Math.min((new Date() / 600) & 0xffffff, 0xffffff));
+        let mat = new THREE.MeshBasicMaterial({
+            color: col,
+            transparent: true,
+            opacity: 1
+        });
+        var drop = new THREE.Mesh(geom, mat);
+        drop.position.set(
+            ((_random()) - 50) * 10,
+            SETTINGS.scene.raindropSpawnHeight,
+            ((_random()) - 50) * 10
+        );
+        drop.scale.set(1, 1.5, 1);
+        drops.push(drop);
+        scene.add(drop);
+    }
+
+    function drip(dropI) {
+        drops[dropI].scale.set(1, 0.2, 1);
+        drops[dropI].position.y = 0;
+        drops[dropI]._timeToGo = 100;
+
+        splats.push(drops[dropI]);
+        drops.splice(dropI, 1);
+
+    }
+
+    function frameBirds() {
+        for ( var i = 0, il = birds.length; i < il; i++ ) {
+
+            boid = boids[ i ];
+            boid.run( boids );
+
+            bird = birds[ i ];
+            bird.position.copy( boids[ i ].position );
+
+            color = bird.material.color;
+            color.r = ( 500 - bird.position.x ) / 1000;
+            color.g = ( 500 - bird.position.y ) / 1000;
+            color.b = ( 500 - bird.position.z ) / 1000;
+
+            bird.rotation.y = Math.atan2( - boid.velocity.z, boid.velocity.x );
+            bird.rotation.z = Math.asin( boid.velocity.y / boid.velocity.length() );
+
+            bird.phase = ( bird.phase + ( Math.max( 0, bird.rotation.z ) + 0.1 )  ) % 62.83;
+            bird.geometry.vertices[ 5 ].y = bird.geometry.vertices[ 4 ].y = Math.sin( bird.phase ) * 5;
+
+        }
+    }
+
+    function frameDrops() {
+        addRaindrop();
+
+        let _drippable = [];
+        let _removable = [];
+
+        for (var i = 0; i < splats.length; i++) {
+            // splats[i].position.z -= SETTINGS.boat.speed;
+            splats[i].scale.x += .05;
+            splats[i].scale.z += .05;
+            splats[i].material.opacity *= .97;
+            splats[i]._timeToGo -= 1;
+            if (!splats[i]._timeToGo) {
+                _removable.push(i);
+            }
+        }
+        for (var i = 0; i < drops.length; i++) {
+            drops[i].position.y -= SETTINGS.raindrops.fallSpeed;
+
+            if (drops[i].position.y <= -5) {
+                _drippable.push(i);
+            }
+        }
+        for (var i = 0; i < _removable.length; i++) {
+            scene.remove(splats[i]);
+            splats.splice(i, 1);
+        }
+        for (var i = 0; i < _drippable.length; i++) {
+            drip(i);
+        }
+
+    }
+
+    function frame() {
+
+        frameBirds();
+        frameDrops();
+        var timer = Date.now() * 0.01;
+
+
+        // Rock the boat:
+        boat.rotation.set(
+            -0.005 + Math.cos(new Date() / 500) / 80,
+            Math.cos(new Date() / 500) / 200,
+            Math.sin(new Date() / 500) / 20
+        );
+        camera.position.y += (Math.cos(new Date() / 500) / 20000)
+        camera.position.x += (Math.sin(new Date() / 500) / 20000)
+    }
+
+
+    function animate() {
+        frame();
+
+        water.material.uniforms.time.value += 1.0 / 100.0;
+        controls.update();
+
+        renderer.setRenderTarget( null );
+        effect.render( scene, camera );
+        water.render();
+        requestAnimationFrame(animate);
+    }
+
+    setup(this);
+    ready = () => {
+        addRaindrop();
+        animate();
+    };
+
+    </script>
+</body>
+</html>
